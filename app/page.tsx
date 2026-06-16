@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
@@ -101,7 +102,7 @@ function BiasMeter({ score }: { score: number }) {
 }
 
 function FactGrid({ report }: { report: FiltrReport }) {
-  const groups = [
+  const factGroups = [
     ["Verifiable Claims", report.keyFacts.verifiableClaims],
     ["Important Numbers", report.keyFacts.importantNumbers],
     ["Named Entities", report.keyFacts.namedEntities],
@@ -109,16 +110,14 @@ function FactGrid({ report }: { report: FiltrReport }) {
   ];
 
   return (
-   <div className="flex items-center gap-3">
-  <a href="/" title="Home">
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img
-      src="/logo-sm.png"
-      alt="Filtr"
-      style={{ width: 160, height: "auto", cursor: "pointer" }}
-    />
-  </a>
-</div>
+    <div className="grid gap-3 md:grid-cols-2">
+      {factGroups.map(([title, items]) => (
+        <div key={title as string} className="rounded-md border border-white/10 bg-white/[0.03] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-white">{title as string}</h3>
+          <BulletList items={items as string[]} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -146,13 +145,11 @@ export default function Home() {
     if (!trimmedUrl) {
       return { label: "Awaiting source", tone: "text-steel", valid: false };
     }
-
     try {
       const parsed = new URL(trimmedUrl);
       if (!["http:", "https:"].includes(parsed.protocol)) {
         return { label: "HTTP links only", tone: "text-risk", valid: false };
       }
-
       return { label: parsed.hostname.replace(/^www\./, ""), tone: "text-mint", valid: true };
     } catch {
       return { label: "Needs a full URL", tone: "text-signal", valid: false };
@@ -169,7 +166,6 @@ export default function Home() {
     event.preventDefault();
     setLoading(true);
     setError("");
-
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -177,11 +173,9 @@ export default function Home() {
         body: JSON.stringify({ url })
       });
       const payload = await response.json();
-
       if (!response.ok) {
         throw new Error(payload.error || "Analysis failed.");
       }
-
       const stored: StoredAnalysis = {
         ...payload,
         id: crypto.randomUUID(),
@@ -232,12 +226,14 @@ export default function Home() {
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex items-center justify-between border-b border-white/10 pb-5">
           <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo-sm.png"
-              alt="Filtr"
-              style={{ width: 160, height: "auto" }}
-            />
+            <Link href="/" title="Home">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo-sm.png"
+                alt="Filtr"
+                style={{ width: 160, height: "auto", cursor: "pointer" }}
+              />
+            </Link>
           </div>
           <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-steel">
             <Moon className="h-4 w-4" />
