@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   Clipboard,
   ClipboardPaste,
