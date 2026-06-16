@@ -109,14 +109,16 @@ function FactGrid({ report }: { report: FiltrReport }) {
   ];
 
   return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {groups.map(([title, items]) => (
-        <div key={title as string} className="rounded-md border border-white/10 bg-white/[0.03] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-white">{title as string}</h3>
-          <BulletList items={items as string[]} />
-        </div>
-      ))}
-    </div>
+   <div className="flex items-center gap-3">
+  <a href="/" title="Home">
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img
+      src="/logo-sm.png"
+      alt="Filtr"
+      style={{ width: 160, height: "auto", cursor: "pointer" }}
+    />
+  </a>
+</div>
   );
 }
 
