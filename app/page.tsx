@@ -2,7 +2,6 @@
 
 import {
   AlertTriangle,
-  ArrowRight,
   CheckCircle2,
   Clipboard,
   ClipboardPaste,
@@ -194,12 +193,12 @@ export default function Home() {
     }
   }
 
- <img
-  src="/logo-sm.png"
-  alt="Filtr"
-  style={{ width: 160, height: "auto" }}
-/>
-  
+  async function pasteFromClipboard() {
+    const text = await navigator.clipboard.readText();
+    setUrl(text.trim());
+    setError("");
+  }
+
   function handleDrop(event: DragEvent<HTMLFormElement>) {
     event.preventDefault();
     setDragging(false);
@@ -230,13 +229,12 @@ export default function Home() {
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex items-center justify-between border-b border-white/10 pb-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
-              <Radar className="h-5 w-5 text-signal" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Filtr</h1>
-              <p className="text-sm text-steel">Signal briefs from noisy pages.</p>
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo-sm.png"
+              alt="Filtr"
+              style={{ width: 160, height: "auto" }}
+            />
           </div>
           <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-steel">
             <Moon className="h-4 w-4" />
