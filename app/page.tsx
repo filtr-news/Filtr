@@ -194,12 +194,12 @@ export default function Home() {
     }
   }
 
-  async function pasteFromClipboard() {
-    const text = await navigator.clipboard.readText();
-    setUrl(text.trim());
-    setError("");
-  }
-
+ <img
+  src="/logo-sm.png"
+  alt="Filtr"
+  style={{ width: 160, height: "auto" }}
+/>
+  
   function handleDrop(event: DragEvent<HTMLFormElement>) {
     event.preventDefault();
     setDragging(false);
