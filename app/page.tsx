@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  Circle,
   Clipboard,
   ClipboardPaste,
   Download,
@@ -44,7 +45,16 @@ const sourceChips = [
   { label: "Forum", url: "https://news.ycombinator.com/" }
 ];
 
-const loadingSteps = ["Extract", "Clean", "Analyze", "Brief"];
+const processSteps = [
+  { key: "extract", label: "Extract Content" },
+  { key: "clean", label: "Clean Text" },
+  { key: "analyze", label: "Analyze Framing" },
+  { key: "brief", label: "Generate Brief" }
+];
+
+const whatYouGet = ["TL;DR", "Key Facts", "Narrative Analysis", "Alternate Perspective", "Confidence Assessment"];
+
+const supportedSources = ["News sites", "Blogs", "Research papers", "PDFs"];
 
 function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -125,6 +135,20 @@ function FactGrid({ report }: { report: FiltrReport }) {
   );
 }
 
+function NarrativeLoadTag({ score }: { score: number }) {
+  const level = score <= 3 ? "Low" : score <= 6 ? "Moderate" : "High";
+  const dotColor = score <= 3 ? "bg-loadLow" : score <= 6 ? "bg-loadMed" : "bg-loadHigh";
+  const textColor = score <= 3 ? "text-loadLow" : score <= 6 ? "text-loadMed" : "text-loadHigh";
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium">
+      <span className={cx("h-1.5 w-1.5 rounded-full", dotColor)} />
+      <span className="text-steel">Narrative Load</span>
+      <span className={textColor}>{level}</span>
+    </span>
+  );
+}
+
 export default function Home() {
   const [mode, setMode] = useState<InputMode>("url");
   const [url, setUrl] = useState("");
@@ -132,6 +156,7 @@ export default function Home() {
   const [analysis, setAnalysis] = useState<StoredAnalysis | null>(null);
   const [history, setHistory] = useState<StoredAnalysis[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState("");
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -145,6 +170,17 @@ export default function Home() {
       setAnalysis(parsed[0] || null);
     }
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      setActiveStep(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setActiveStep((step) => (step < processSteps.length - 1 ? step + 1 : step));
+    }, 1400);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   const markdown = useMemo(() => (analysis ? toMarkdown(analysis) : ""), [analysis]);
   const trimmedUrl = url.trim();
@@ -277,205 +313,204 @@ export default function Home() {
     URL.revokeObjectURL(href);
   }
 
+  function startNewAnalysis() {
+    setAnalysis(null);
+    setError("");
+  }
+
   return (
     <main className="min-h-screen bg-ink text-zinc-50">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex items-center justify-between border-b border-white/10 pb-5">
-          <div className="flex items-center gap-3">
-            <Link href="/" title="Home">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo-sm.png"
-                alt="Filtr"
-                style={{ width: 160, height: "auto", cursor: "pointer" }}
-              />
-            </Link>
-          </div>
+      <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-5 sm:px-6 lg:px-8">
+        <header className="flex items-center justify-between pb-4">
+          <Link href="/" title="Home" onClick={startNewAnalysis}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo-sm.png"
+              alt="Filtr"
+              style={{ width: 140, height: "auto", cursor: "pointer" }}
+            />
+          </Link>
           <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-steel">
             <Moon className="h-4 w-4" />
             Dark
           </div>
         </header>
 
-        <div className="grid flex-1 gap-6 py-6 lg:grid-cols-[360px_1fr]">
-          <aside className="space-y-5">
-            <form
-              onSubmit={analyze}
-              onDragEnter={() => setDragging(true)}
-              onDragOver={(event) => event.preventDefault()}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              className={cx(
-                "rounded-md border bg-panel p-4 shadow-glow transition",
-                focused || dragging ? "border-signal/50 bg-[#171d27]" : "border-white/10"
-              )}
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                  <Link2 className="h-4 w-4 text-signal" />
-                  Source
-                </label>
-                <span className={cx("max-w-[170px] truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs", urlState.tone)}>
-                  {urlState.label}
-                </span>
-              </div>
+        {!analysis ? (
+          <>
+            <section className="flex flex-col items-center px-2 py-14 text-center sm:py-20">
+              <h1 className="text-balance text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+                extract what matters.
+              </h1>
 
-              {/* Mode toggle: URL vs PDF */}
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => switchMode("url")}
-                  className={cx(
-                    "flex h-9 items-center justify-center gap-2 rounded-md border text-xs font-medium uppercase tracking-[0.08em] transition",
-                    mode === "url"
-                      ? "border-signal/50 bg-signal/10 text-signal"
-                      : "border-white/10 text-steel hover:border-white/25 hover:text-white"
-                  )}
-                >
-                  <Link2 className="h-3.5 w-3.5" />
-                  URL
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchMode("pdf")}
-                  className={cx(
-                    "flex h-9 items-center justify-center gap-2 rounded-md border text-xs font-medium uppercase tracking-[0.08em] transition",
-                    mode === "pdf"
-                      ? "border-signal/50 bg-signal/10 text-signal"
-                      : "border-white/10 text-steel hover:border-white/25 hover:text-white"
-                  )}
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  PDF
-                </button>
-              </div>
-
-              <div
-                className={cx(
-                  "rounded-md border p-2 transition",
-                  dragging ? "border-signal bg-signal/10" : "border-white/10 bg-ink"
-                )}
+              <form
+                onSubmit={analyze}
+                onDragEnter={() => setDragging(true)}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                className="mt-10 w-full max-w-2xl"
               >
-                {mode === "url" ? (
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
-                      <input
-                        id="url"
-                        type="url"
-                        value={url}
-                        onChange={(event) => {
-                          setUrl(event.target.value);
-                          setError("");
-                        }}
-                        onFocus={() => setFocused(true)}
-                        onBlur={() => setFocused(false)}
-                        placeholder={sampleUrl}
-                        className="h-12 w-full rounded-md border border-transparent bg-white/[0.03] pl-9 pr-9 text-sm text-white outline-none transition placeholder:text-steel/70 focus:border-signal/50"
-                        required
-                      />
-                      {url && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setUrl("");
-                            setError("");
-                          }}
-                          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-steel transition hover:bg-white/10 hover:text-white"
-                          title="Clear URL"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={pasteFromClipboard}
-                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-white/10 text-steel transition hover:border-white/25 hover:text-white"
-                      title="Paste URL"
-                    >
-                      <ClipboardPaste className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={loading || !urlState.valid}
-                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-signal text-ink transition hover:bg-[#ffd978] disabled:cursor-not-allowed disabled:opacity-45"
-                      title="Analyze"
-                    >
-                      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
+                <div className="mb-3 flex justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => switchMode("url")}
+                    className={cx(
+                      "flex h-8 items-center gap-2 rounded-full border px-4 text-xs font-medium uppercase tracking-[0.08em] transition",
+                      mode === "url"
+                        ? "border-accent/50 bg-accent/10 text-accent"
+                        : "border-white/10 text-steel hover:border-white/25 hover:text-white"
+                    )}
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    URL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchMode("pdf")}
+                    className={cx(
+                      "flex h-8 items-center gap-2 rounded-full border px-4 text-xs font-medium uppercase tracking-[0.08em] transition",
+                      mode === "pdf"
+                        ? "border-accent/50 bg-accent/10 text-accent"
+                        : "border-white/10 text-steel hover:border-white/25 hover:text-white"
+                    )}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    PDF
+                  </button>
+                </div>
+
+                <div
+                  className={cx(
+                    "rounded-xl border p-2 transition",
+                    dragging ? "border-accent bg-accent/10" : focused ? "border-accent/50" : "border-white/10 bg-white/[0.02]"
+                  )}
+                >
+                  {mode === "url" ? (
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <div className="relative flex-1">
-                        <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
+                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
                         <input
-                          id="pdf-url"
+                          id="url"
                           type="url"
                           value={url}
                           onChange={(event) => {
                             setUrl(event.target.value);
-                            setPdfFile(null);
                             setError("");
                           }}
                           onFocus={() => setFocused(true)}
                           onBlur={() => setFocused(false)}
-                          placeholder={samplePdfUrl}
-                          disabled={!!pdfFile}
-                          className="h-12 w-full rounded-md border border-transparent bg-white/[0.03] pl-9 pr-9 text-sm text-white outline-none transition placeholder:text-steel/70 focus:border-signal/50 disabled:opacity-40"
+                          placeholder={sampleUrl}
+                          className="h-14 w-full rounded-lg border border-transparent bg-transparent pl-11 pr-9 text-base text-white outline-none transition placeholder:text-steel/70"
+                          required
                         />
+                        {url && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUrl("");
+                              setError("");
+                            }}
+                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-steel transition hover:bg-white/10 hover:text-white"
+                            title="Clear URL"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
+                      <button
+                        type="button"
+                        onClick={pasteFromClipboard}
+                        className="flex h-14 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 text-sm text-steel transition hover:border-white/25 hover:text-white sm:w-auto"
+                        title="Paste URL"
+                      >
+                        <ClipboardPaste className="h-4 w-4" />
+                        <span className="sm:hidden">Paste</span>
+                      </button>
                       <button
                         type="submit"
                         disabled={loading || !urlState.valid}
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-signal text-ink transition hover:bg-[#ffd978] disabled:cursor-not-allowed disabled:opacity-45"
-                        title="Analyze"
+                        className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-lg bg-accent px-6 text-base font-medium text-ink transition hover:bg-accentHover disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
+                        {loading ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <>
+                            Analyze Article
+                            <ArrowRight className="h-4 w-4" />
+                          </>
+                        )}
                       </button>
                     </div>
+                  ) : (
+                    <div className="space-y-2 p-1">
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <div className="relative flex-1">
+                          <Link2 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
+                          <input
+                            id="pdf-url"
+                            type="url"
+                            value={url}
+                            onChange={(event) => {
+                              setUrl(event.target.value);
+                              setPdfFile(null);
+                              setError("");
+                            }}
+                            onFocus={() => setFocused(true)}
+                            onBlur={() => setFocused(false)}
+                            placeholder={samplePdfUrl}
+                            disabled={!!pdfFile}
+                            className="h-14 w-full rounded-lg border border-transparent bg-transparent pl-11 pr-9 text-base text-white outline-none transition placeholder:text-steel/70 disabled:opacity-40"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={loading || !urlState.valid}
+                          className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-lg bg-accent px-6 text-base font-medium text-ink transition hover:bg-accentHover disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {loading ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <>
+                              Analyze Article
+                              <ArrowRight className="h-4 w-4" />
+                            </>
+                          )}
+                        </button>
+                      </div>
 
-                    <div className="flex items-center gap-2 text-xs text-steel">
-                      <span className="h-px flex-1 bg-white/10" />
-                      <span>or</span>
-                      <span className="h-px flex-1 bg-white/10" />
-                    </div>
+                      <div className="flex items-center gap-2 px-2 text-xs text-steel">
+                        <span className="h-px flex-1 bg-white/10" />
+                        <span>or</span>
+                        <span className="h-px flex-1 bg-white/10" />
+                      </div>
 
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="application/pdf,.pdf"
-                      onChange={handlePdfSelect}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className={cx(
-                        "flex h-12 w-full items-center justify-center gap-2 rounded-md border text-sm transition",
-                        pdfFile
-                          ? "border-mint/40 bg-mint/10 text-mint"
-                          : "border-dashed border-white/15 text-steel hover:border-white/30 hover:text-white"
-                      )}
-                    >
-                      <Upload className="h-4 w-4" />
-                      {pdfFile ? pdfFile.name : "Upload a PDF (drag & drop or click)"}
-                    </button>
-                    {pdfFile && (
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        onChange={handlePdfSelect}
+                        className="hidden"
+                      />
                       <button
                         type="button"
-                        onClick={() => setPdfFile(null)}
-                        className="text-xs text-steel underline-offset-2 hover:text-white hover:underline"
+                        onClick={() => fileInputRef.current?.click()}
+                        className={cx(
+                          "flex h-14 w-full items-center justify-center gap-2 rounded-lg border text-sm transition",
+                          pdfFile
+                            ? "border-mint/40 bg-mint/10 text-mint"
+                            : "border-dashed border-white/15 text-steel hover:border-white/30 hover:text-white"
+                        )}
                       >
-                        Remove file
+                        <Upload className="h-4 w-4" />
+                        {pdfFile ? pdfFile.name : "Upload a PDF (drag & drop or click)"}
                       </button>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
 
-                {mode === "url" && (
-                  <div className="mt-3 flex flex-wrap gap-2">
+                {mode === "url" && !loading && (
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
                     {sourceChips.map((chip) => (
                       <button
                         key={chip.label}
@@ -484,88 +519,132 @@ export default function Home() {
                           setUrl(chip.url);
                           setError("");
                         }}
-                        className="rounded-md border border-white/10 px-2.5 py-1.5 text-xs text-steel transition hover:border-signal/40 hover:bg-signal/10 hover:text-white"
+                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-steel transition hover:border-accent/40 hover:bg-accent/10 hover:text-white"
                       >
                         {chip.label}
                       </button>
                     ))}
                   </div>
                 )}
-              </div>
 
-              <div className="mt-3 grid grid-cols-4 gap-2">
-                {loadingSteps.map((step, index) => (
-                  <div
-                    key={step}
-                    className={cx(
-                      "rounded-md border px-2 py-2 text-center text-[11px] font-medium uppercase tracking-[0.12em] transition",
-                      loading
-                        ? "border-signal/30 bg-signal/10 text-signal"
-                        : index === 0
-                          ? "border-white/10 bg-white/[0.03] text-zinc-300"
-                          : "border-white/10 text-steel"
-                    )}
-                    style={loading ? { transitionDelay: `${index * 100}ms` } : undefined}
-                  >
-                    {step}
+                {loading && (
+                  <div className="mt-8 flex items-center justify-center gap-2 overflow-x-auto px-1 text-xs sm:gap-3">
+                    {processSteps.map((step, index) => {
+                      const isDone = index < activeStep;
+                      const isActive = index === activeStep;
+                      return (
+                        <div key={step.key} className="flex items-center gap-2 sm:gap-3">
+                          <div
+                            className={cx(
+                              "flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 font-medium transition",
+                              isDone && "text-accent",
+                              isActive && "text-white",
+                              !isDone && !isActive && "text-steel"
+                            )}
+                          >
+                            {isDone ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-accent" />
+                            ) : isActive ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                            ) : (
+                              <Circle className="h-3.5 w-3.5 text-steel/50" />
+                            )}
+                            {step.label}
+                          </div>
+                          {index < processSteps.length - 1 && (
+                            <span className="h-px w-4 bg-white/10 sm:w-8" />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
+                )}
+
+                {error && (
+                  <div className="mt-4 flex gap-2 rounded-md border border-risk/30 bg-risk/10 p-3 text-left text-sm text-red-100">
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-risk" />
+                    <span>{error}</span>
+                  </div>
+                )}
+              </form>
+            </section>
+
+            <section className="border-t border-white/10 py-12 text-center">
+              <h2 className="mb-6 text-sm font-semibold uppercase tracking-[0.22em] text-steel">What you&apos;ll get</h2>
+              <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+                {whatYouGet.map((item) => (
+                  <span key={item} className="flex items-center gap-2 text-sm text-zinc-200">
+                    <CheckCircle2 className="h-4 w-4 text-accent" />
+                    {item}
+                  </span>
                 ))}
               </div>
+            </section>
 
-              {error && (
-                <div className="mt-3 flex gap-2 rounded-md border border-risk/30 bg-risk/10 p-3 text-sm text-red-100">
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-risk" />
-                  <span>{error}</span>
-                </div>
-              )}
-            </form>
+            <section className="border-t border-white/10 py-8 text-center">
+              <p className="text-sm text-steel">
+                <span className="text-zinc-400">Works with:</span>{" "}
+                {supportedSources.map((item, index) => (
+                  <span key={item}>
+                    {item}
+                    {index < supportedSources.length - 1 && <span className="px-2 text-white/20">·</span>}
+                  </span>
+                ))}
+              </p>
+            </section>
 
-            <div className="rounded-md border border-white/10 bg-white/[0.03] p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-200">
+            <section className="border-t border-white/10 py-10">
+              <div className="mb-5 flex items-center gap-2 text-sm font-semibold text-zinc-200">
                 <History className="h-4 w-4 text-steel" />
                 Recent Analyses
               </div>
-              <div className="space-y-2">
-                {history.length === 0 ? (
-                  <p className="text-sm leading-6 text-steel">Analyses stay in this browser. No accounts, no server-side history.</p>
-                ) : (
-                  history.map((entry) => (
+              {history.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6 text-center text-sm text-steel">
+                  Analyses stay in this browser. No accounts, no server-side history.
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {history.map((entry) => (
                     <button
                       key={entry.id}
                       onClick={() => setAnalysis(entry)}
-                      className={cx(
-                        "w-full rounded-md border p-3 text-left transition",
-                        analysis?.id === entry.id
-                          ? "border-signal/50 bg-signal/10"
-                          : "border-white/10 bg-white/[0.03] hover:border-white/20"
-                      )}
+                      className="group flex flex-col overflow-hidden rounded-xl border border-white/10 bg-white/[0.02] text-left transition hover:border-white/20"
                     >
-                      <p className="line-clamp-2 text-sm font-medium text-white">{entry.source.title}</p>
-                      <p className="mt-1 text-xs text-steel">{entry.source.siteName || entry.source.url}</p>
+                      <div className="flex h-28 items-center justify-center bg-white/[0.03] text-steel/40">
+                        <Newspaper className="h-8 w-8" />
+                      </div>
+                      <div className="flex flex-1 flex-col gap-3 p-4">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-[0.1em] text-steel">
+                            {entry.source.siteName || new URL(entry.source.url).hostname}
+                          </p>
+                          <p className="mt-1 line-clamp-2 text-sm font-medium text-white">{entry.source.title}</p>
+                        </div>
+                        <div className="mt-auto flex items-center justify-between">
+                          <NarrativeLoadTag score={entry.report.narrativeDetection.biasScore} />
+                          <span className="flex items-center gap-1 text-xs font-medium text-accent opacity-0 transition group-hover:opacity-100">
+                            Read Summary
+                            <ArrowRight className="h-3 w-3" />
+                          </span>
+                        </div>
+                      </div>
                     </button>
-                  ))
-                )}
-              </div>
-            </div>
-          </aside>
-
-          <section className="min-w-0 rounded-md border border-white/10 bg-panel shadow-glow">
-            {!analysis ? (
-              <div className="flex min-h-[620px] flex-col justify-center p-8">
-                <div className="max-w-2xl">
-                  <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
-                    <Newspaper className="h-6 w-6 text-signal" />
-                  </div>
-                  <p className="mb-3 text-sm font-semibold uppercase tracking-[0.22em] text-steel">Reuters discipline. Analyst edge.</p>
-                  <h2 className="text-balance text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                    Strip the story down to what matters.
-                  </h2>
-                  <p className="mt-5 max-w-xl text-base leading-7 text-zinc-300">
-                    Filtr extracts the article, removes clutter, scores narrative framing, flags weak claims, and returns a practical brief built for decisions.
-                  </p>
+                  ))}
                 </div>
-              </div>
-            ) : (
+              )}
+            </section>
+          </>
+        ) : (
+          <div className="py-6">
+            <button
+              onClick={startNewAnalysis}
+              className="mb-5 flex items-center gap-2 text-sm text-steel transition hover:text-white"
+            >
+              <ArrowRight className="h-3.5 w-3.5 rotate-180" />
+              New analysis
+            </button>
+
+            <section className="min-w-0 rounded-md border border-white/10 bg-panel shadow-glow">
               <article className="p-5 sm:p-7">
                 <div className="mb-6 flex flex-col gap-4 border-b border-white/10 pb-6 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -692,9 +771,9 @@ export default function Home() {
                   </p>
                 </Section>
               </article>
-            )}
-          </section>
-        </div>
+            </section>
+          </div>
+        )}
       </div>
     </main>
   );
