@@ -36,16 +36,6 @@ function extractNumbers(text: string) {
   ).slice(0, 8);
 }
 
-function extractDates(text: string) {
-  return Array.from(
-    new Set(
-      text.match(
-        /\b(?:Jan\.?|January|Feb\.?|February|Mar\.?|March|Apr\.?|April|May|Jun\.?|June|Jul\.?|July|Aug\.?|August|Sep\.?|September|Oct\.?|October|Nov\.?|November|Dec\.?|December)\s+\d{1,2},?\s+\d{0,4}|\b20\d{2}\b|\b19\d{2}\b/gi
-      ) || []
-    )
-  ).slice(0, 8);
-}
-
 function extractEntities(text: string) {
   const matches = text.match(/\b[A-Z][a-z]+(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,}|&)){1,4}/g) || [];
   return Array.from(new Set(matches.filter((item) => !item.startsWith("The ")))).slice(0, 12);
@@ -62,12 +52,21 @@ function narrativeHighlights(text: string): Highlight[] {
     .slice(0, 5) as Highlight[];
 }
 
+// Caps every BS Detector category at maxItems entries.
+// Keeps the most relevant ones since callers already slice for relevance.
+function capBsDetector(bsDetector: FiltrReport["bsDetector"], maxItems = 3): FiltrReport["bsDetector"] {
+  const capped = {} as FiltrReport["bsDetector"];
+  for (const key of Object.keys(bsDetector) as Array<keyof FiltrReport["bsDetector"]>) {
+    capped[key] = (bsDetector[key] || []).slice(0, maxItems);
+  }
+  return capped;
+}
+
 function localAnalyze(content: string, source: SourceInfo): FiltrReport {
   const allSentences = sentences(content);
   const highlights = narrativeHighlights(content);
   const numbers = extractNumbers(content);
   const entities = extractEntities(content);
-  const dates = extractDates(content);
   const biasScore = Math.min(10, Math.max(1, highlights.length * 2 + (content.match(/anonymous|sources said|insider|critics say/gi)?.length || 0)));
 
   const flags: NarrativeFlag[] = highlights.length
@@ -84,14 +83,26 @@ function localAnalyze(content: string, source: SourceInfo): FiltrReport {
         }
       ];
 
+  // Build a verdict that actually reflects this article's signal,
+  // rather than a fixed boilerplate sentence.
+  const topClaim = allSentences[0] || source.excerpt || "the central claim";
+  const verdictBias =
+    biasScore <= 3
+      ? "The framing is largely neutral, so the reported facts can mostly be taken at face value."
+      : biasScore <= 6
+        ? "The framing leans toward a particular interpretation, so separate the sourced facts from the author's spin before acting."
+        : "The framing is heavily narrative-driven, so treat the conclusion with real skepticism until verified against primary sources.";
+  const verdictSourcing = allSentences.some((sentence) => /anonymous|sources said|insider|person familiar/i.test(sentence))
+    ? " Several claims rely on anonymous or unnamed sourcing, which limits how much weight to put on them."
+    : "";
+
   return {
-    tldr: allSentences[0] || source.excerpt || "The page was extracted, but the core argument was thin.",
+    tldr: topClaim,
     summary: allSentences.slice(0, 5),
     keyFacts: {
       verifiableClaims: allSentences.slice(0, 5),
       importantNumbers: numbers.length ? numbers : ["No prominent numbers detected."],
-      namedEntities: entities.length ? entities : [source.siteName || new URL(source.url).hostname],
-      datesAndTimelines: dates.length ? dates : ["No clear dates detected."]
+      namedEntities: entities.length ? entities : [source.siteName || new URL(source.url).hostname]
     },
     whatActuallyMatters: {
       whyItMatters:
@@ -112,22 +123,21 @@ function localAnalyze(content: string, source: SourceInfo): FiltrReport {
       flags,
       highlightedSentences: highlights
     },
-    bsDetector: {
+    bsDetector: capBsDetector({
       missingContext: ["Check whether the piece compares this event against historical baselines or peer examples."],
       cherryPickedData: numbers.length ? ["Numbers appear in the piece; verify denominators, time periods, and source methodology."] : [],
       unsupportedClaims: allSentences.filter((sentence) => /may|might|could|critics|experts|some say/i.test(sentence)).slice(0, 4),
       anonymousSourcing: allSentences.filter((sentence) => /anonymous|sources said|insider|person familiar/i.test(sentence)).slice(0, 4),
       conflictsOfInterest: ["Look for ownership, sponsor, affiliate, or author incentives that could shape framing."],
       sponsoredIndicators: allSentences.filter((sentence) => /sponsored|partner|affiliate|presented by|brand studio/i.test(sentence)).slice(0, 4)
-    },
+    }),
     alternateLens: [
       "Market perspective: ask whether this changes cash flows, competitive position, regulation, or risk pricing.",
       "Consumer perspective: ask whether everyday choices, costs, or protections actually change.",
       "Industry perspective: ask whether incumbents, suppliers, or regulators gain leverage.",
       "Skeptical perspective: ask what evidence would disprove the article's implied conclusion."
     ],
-    finalVerdict:
-      "A smart reader would treat this as a starting brief, not a final judgment: keep the verifiable claims, discount the framing, and look for primary evidence before changing a belief or decision."
+    finalVerdict: `This piece centers on: "${topClaim}" ${verdictBias}${verdictSourcing}`
   };
 }
 
@@ -136,7 +146,7 @@ function reportPrompt(content: string, source: SourceInfo) {
     {
       role: "system" as const,
       content:
-        "You are Filtr: Reuters discipline, Breaking Points skepticism, hedge fund analyst practicality. Remove narrative padding and produce concise intelligence. Return only valid JSON matching the requested schema. Be specific, cautious, and useful."
+        "You are Filtr: Reuters discipline, Breaking Points skepticism, hedge fund analyst practicality. Remove narrative padding and produce concise intelligence. Return only valid JSON matching the requested schema. Be specific, cautious, and useful. Never write generic, templated, or filler sentences — every field must reference specific facts, names, numbers, or claims that actually appear in THIS article's content. If a field would otherwise be generic boilerplate, instead state precisely what is and isn't in the source text."
     },
     {
       role: "user" as const,
@@ -152,8 +162,7 @@ Return JSON with this exact shape:
   "keyFacts": {
     "verifiableClaims": ["claims that can be checked"],
     "importantNumbers": ["numbers with context"],
-    "namedEntities": ["people, orgs, places, products"],
-    "datesAndTimelines": ["dates or timeline points"]
+    "namedEntities": ["people, orgs, places, products"]
   },
   "whatActuallyMatters": {
     "whyItMatters": "string",
@@ -166,16 +175,18 @@ Return JSON with this exact shape:
     "highlightedSentences": [{"sentence":"exact sentence from text", "reason":"why it is narrative framing"}]
   },
   "bsDetector": {
-    "missingContext": [],
-    "cherryPickedData": [],
-    "unsupportedClaims": [],
-    "anonymousSourcing": [],
-    "conflictsOfInterest": [],
-    "sponsoredIndicators": []
+    "missingContext": ["AT MOST 2-3 items, each one short sentence, specific to this article only — omit the key entirely (empty array) if nothing applies"],
+    "cherryPickedData": ["AT MOST 2-3 items, same rule"],
+    "unsupportedClaims": ["AT MOST 2-3 items, same rule"],
+    "anonymousSourcing": ["AT MOST 2-3 items, same rule"],
+    "conflictsOfInterest": ["AT MOST 2-3 items, same rule"],
+    "sponsoredIndicators": ["AT MOST 2-3 items, same rule"]
   },
   "alternateLens": ["2-4 alternative interpretations labeled by perspective"],
-  "finalVerdict": "One paragraph: What would a smart person conclude after reading this?"
+  "finalVerdict": "One paragraph that names the SPECIFIC central claim of THIS article (quote or closely paraphrase it), states how much confidence a careful reader should place in it based on the sourcing and framing actually present in the text, and names the one thing that would most change that confidence (e.g. a missing data point, an unnamed source, or absent context). Do not write a generic statement that could apply to any article."
 }
+
+IMPORTANT: Every bsDetector array must contain at most 3 items. If you have nothing genuine to flag for a category, return an empty array for it rather than inventing filler.
 
 Content:
 ${content}`
@@ -204,6 +215,8 @@ export async function analyzeContent(content: string, source: SourceInfo): Promi
   try {
     const parsed = JSON.parse(raw) as FiltrReport;
     parsed.narrativeDetection.biasScore = Math.max(0, Math.min(10, Number(parsed.narrativeDetection.biasScore) || 0));
+    // Defensive cap in code too, in case the model ignores the instruction.
+    parsed.bsDetector = capBsDetector(parsed.bsDetector, 3);
     return parsed;
   } catch {
     return localAnalyze(content, source);
