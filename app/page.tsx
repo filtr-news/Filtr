@@ -19,11 +19,12 @@ import {
   Search,
   ShieldAlert,
   Sparkles,
+  Upload,
   X,
   TimerReset,
   XCircle
 } from "lucide-react";
-import { DragEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { AnalysisResponse, FiltrReport } from "@/lib/types";
 import { toMarkdown } from "@/lib/markdown";
 
@@ -32,7 +33,10 @@ type StoredAnalysis = AnalysisResponse & {
   createdAt: string;
 };
 
+type InputMode = "url" | "pdf";
+
 const sampleUrl = "https://www.reuters.com/";
+const samplePdfUrl = "https://example.com/document.pdf";
 
 const sourceChips = [
   { label: "Reuters", url: "https://www.reuters.com/" },
@@ -69,6 +73,7 @@ function Section({
 }
 
 function BulletList({ items }: { items: string[] }) {
+  if (!items.filter(Boolean).length) return null;
   return (
     <ul className="space-y-2 text-sm leading-6 text-zinc-200">
       {items.filter(Boolean).map((item, index) => (
@@ -89,7 +94,7 @@ function BiasMeter({ score }: { score: number }) {
     <div className="rounded-md border border-white/10 bg-white/[0.03] p-4">
       <div className="mb-3 flex items-end justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-steel">Bias Score</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-steel">Narrative Load</p>
           <p className="mt-1 text-sm text-zinc-300">{level}</p>
         </div>
         <p className="font-mono text-4xl font-semibold">{score}<span className="text-lg text-steel">/10</span></p>
@@ -105,8 +110,7 @@ function FactGrid({ report }: { report: FiltrReport }) {
   const factGroups = [
     ["Verifiable Claims", report.keyFacts.verifiableClaims],
     ["Important Numbers", report.keyFacts.importantNumbers],
-    ["Named Entities", report.keyFacts.namedEntities],
-    ["Dates and Timelines", report.keyFacts.datesAndTimelines]
+    ["Named Entities", report.keyFacts.namedEntities]
   ];
 
   return (
@@ -122,13 +126,16 @@ function FactGrid({ report }: { report: FiltrReport }) {
 }
 
 export default function Home() {
+  const [mode, setMode] = useState<InputMode>("url");
   const [url, setUrl] = useState("");
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<StoredAnalysis | null>(null);
   const [history, setHistory] = useState<StoredAnalysis[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("filtr-history");
@@ -142,6 +149,9 @@ export default function Home() {
   const markdown = useMemo(() => (analysis ? toMarkdown(analysis) : ""), [analysis]);
   const trimmedUrl = url.trim();
   const urlState = useMemo(() => {
+    if (mode === "pdf" && pdfFile) {
+      return { label: pdfFile.name, tone: "text-mint", valid: true };
+    }
     if (!trimmedUrl) {
       return { label: "Awaiting source", tone: "text-steel", valid: false };
     }
@@ -154,7 +164,7 @@ export default function Home() {
     } catch {
       return { label: "Needs a full URL", tone: "text-signal", valid: false };
     }
-  }, [trimmedUrl]);
+  }, [trimmedUrl, mode, pdfFile]);
 
   function saveHistory(item: StoredAnalysis) {
     const next = [item, ...history.filter((entry) => entry.source.url !== item.source.url)].slice(0, 8);
@@ -162,20 +172,42 @@ export default function Home() {
     window.localStorage.setItem("filtr-history", JSON.stringify(next));
   }
 
+  function switchMode(next: InputMode) {
+    setMode(next);
+    setError("");
+    setUrl("");
+    setPdfFile(null);
+  }
+
   async function analyze(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
+
     try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url })
-      });
+      let response: Response;
+
+      if (mode === "pdf" && pdfFile) {
+        const formData = new FormData();
+        formData.append("file", pdfFile);
+        response = await fetch("/api/analyze", {
+          method: "POST",
+          body: formData
+        });
+      } else {
+        response = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url, mode })
+        });
+      }
+
       const payload = await response.json();
+
       if (!response.ok) {
         throw new Error(payload.error || "Analysis failed.");
       }
+
       const stored: StoredAnalysis = {
         ...payload,
         id: crypto.randomUUID(),
@@ -196,9 +228,33 @@ export default function Home() {
     setError("");
   }
 
+  function handlePdfSelect(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (!file.type.includes("pdf") && !file.name.toLowerCase().endsWith(".pdf")) {
+        setError("Please select a PDF file.");
+        return;
+      }
+      setPdfFile(file);
+      setError("");
+    }
+  }
+
   function handleDrop(event: DragEvent<HTMLFormElement>) {
     event.preventDefault();
     setDragging(false);
+
+    if (mode === "pdf") {
+      const file = event.dataTransfer.files?.[0];
+      if (file && (file.type.includes("pdf") || file.name.toLowerCase().endsWith(".pdf"))) {
+        setPdfFile(file);
+        setError("");
+      } else if (file) {
+        setError("Please drop a PDF file.");
+      }
+      return;
+    }
+
     const text = event.dataTransfer.getData("text/uri-list") || event.dataTransfer.getData("text/plain");
     if (text) {
       setUrl(text.trim());
@@ -255,13 +311,43 @@ export default function Home() {
               )}
             >
               <div className="mb-3 flex items-center justify-between gap-3">
-                <label htmlFor="url" className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
                   <Link2 className="h-4 w-4 text-signal" />
-                  Source URL
+                  Source
                 </label>
                 <span className={cx("max-w-[170px] truncate rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-xs", urlState.tone)}>
                   {urlState.label}
                 </span>
+              </div>
+
+              {/* Mode toggle: URL vs PDF */}
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => switchMode("url")}
+                  className={cx(
+                    "flex h-9 items-center justify-center gap-2 rounded-md border text-xs font-medium uppercase tracking-[0.08em] transition",
+                    mode === "url"
+                      ? "border-signal/50 bg-signal/10 text-signal"
+                      : "border-white/10 text-steel hover:border-white/25 hover:text-white"
+                  )}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchMode("pdf")}
+                  className={cx(
+                    "flex h-9 items-center justify-center gap-2 rounded-md border text-xs font-medium uppercase tracking-[0.08em] transition",
+                    mode === "pdf"
+                      ? "border-signal/50 bg-signal/10 text-signal"
+                      : "border-white/10 text-steel hover:border-white/25 hover:text-white"
+                  )}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  PDF
+                </button>
               </div>
 
               <div
@@ -270,70 +356,141 @@ export default function Home() {
                   dragging ? "border-signal bg-signal/10" : "border-white/10 bg-ink"
                 )}
               >
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
-                    <input
-                      id="url"
-                      type="url"
-                      value={url}
-                      onChange={(event) => {
-                        setUrl(event.target.value);
-                        setError("");
-                      }}
-                      onFocus={() => setFocused(true)}
-                      onBlur={() => setFocused(false)}
-                      placeholder={sampleUrl}
-                      className="h-12 w-full rounded-md border border-transparent bg-white/[0.03] pl-9 pr-9 text-sm text-white outline-none transition placeholder:text-steel/70 focus:border-signal/50"
-                      required
-                    />
-                    {url && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUrl("");
+                {mode === "url" ? (
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
+                      <input
+                        id="url"
+                        type="url"
+                        value={url}
+                        onChange={(event) => {
+                          setUrl(event.target.value);
                           setError("");
                         }}
-                        className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-steel transition hover:bg-white/10 hover:text-white"
-                        title="Clear URL"
+                        onFocus={() => setFocused(true)}
+                        onBlur={() => setFocused(false)}
+                        placeholder={sampleUrl}
+                        className="h-12 w-full rounded-md border border-transparent bg-white/[0.03] pl-9 pr-9 text-sm text-white outline-none transition placeholder:text-steel/70 focus:border-signal/50"
+                        required
+                      />
+                      {url && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUrl("");
+                            setError("");
+                          }}
+                          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-steel transition hover:bg-white/10 hover:text-white"
+                          title="Clear URL"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={pasteFromClipboard}
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-white/10 text-steel transition hover:border-white/25 hover:text-white"
+                      title="Paste URL"
+                    >
+                      <ClipboardPaste className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading || !urlState.valid}
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-signal text-ink transition hover:bg-[#ffd978] disabled:cursor-not-allowed disabled:opacity-45"
+                      title="Analyze"
+                    >
+                      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-steel" />
+                        <input
+                          id="pdf-url"
+                          type="url"
+                          value={url}
+                          onChange={(event) => {
+                            setUrl(event.target.value);
+                            setPdfFile(null);
+                            setError("");
+                          }}
+                          onFocus={() => setFocused(true)}
+                          onBlur={() => setFocused(false)}
+                          placeholder={samplePdfUrl}
+                          disabled={!!pdfFile}
+                          className="h-12 w-full rounded-md border border-transparent bg-white/[0.03] pl-9 pr-9 text-sm text-white outline-none transition placeholder:text-steel/70 focus:border-signal/50 disabled:opacity-40"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={loading || !urlState.valid}
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-signal text-ink transition hover:bg-[#ffd978] disabled:cursor-not-allowed disabled:opacity-45"
+                        title="Analyze"
                       >
-                        <X className="h-4 w-4" />
+                        {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-steel">
+                      <span className="h-px flex-1 bg-white/10" />
+                      <span>or</span>
+                      <span className="h-px flex-1 bg-white/10" />
+                    </div>
+
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      onChange={handlePdfSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cx(
+                        "flex h-12 w-full items-center justify-center gap-2 rounded-md border text-sm transition",
+                        pdfFile
+                          ? "border-mint/40 bg-mint/10 text-mint"
+                          : "border-dashed border-white/15 text-steel hover:border-white/30 hover:text-white"
+                      )}
+                    >
+                      <Upload className="h-4 w-4" />
+                      {pdfFile ? pdfFile.name : "Upload a PDF (drag & drop or click)"}
+                    </button>
+                    {pdfFile && (
+                      <button
+                        type="button"
+                        onClick={() => setPdfFile(null)}
+                        className="text-xs text-steel underline-offset-2 hover:text-white hover:underline"
+                      >
+                        Remove file
                       </button>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={pasteFromClipboard}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-white/10 text-steel transition hover:border-white/25 hover:text-white"
-                    title="Paste URL"
-                  >
-                    <ClipboardPaste className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading || !urlState.valid}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-signal text-ink transition hover:bg-[#ffd978] disabled:cursor-not-allowed disabled:opacity-45"
-                    title="Analyze"
-                  >
-                    {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
-                  </button>
-                </div>
+                )}
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {sourceChips.map((chip) => (
-                    <button
-                      key={chip.label}
-                      type="button"
-                      onClick={() => {
-                        setUrl(chip.url);
-                        setError("");
-                      }}
-                      className="rounded-md border border-white/10 px-2.5 py-1.5 text-xs text-steel transition hover:border-signal/40 hover:bg-signal/10 hover:text-white"
-                    >
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
+                {mode === "url" && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {sourceChips.map((chip) => (
+                      <button
+                        key={chip.label}
+                        type="button"
+                        onClick={() => {
+                          setUrl(chip.url);
+                          setError("");
+                        }}
+                        className="rounded-md border border-white/10 px-2.5 py-1.5 text-xs text-steel transition hover:border-signal/40 hover:bg-signal/10 hover:text-white"
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="mt-3 grid grid-cols-4 gap-2">
@@ -509,12 +666,19 @@ export default function Home() {
 
                 <Section title="BS Detector" icon={<ShieldAlert className="h-4 w-4" />}>
                   <div className="grid gap-3 md:grid-cols-2">
-                    {Object.entries(analysis.report.bsDetector).map(([key, items]) => (
-                      <div key={key} className="rounded-md border border-white/10 bg-white/[0.03] p-4">
-                        <h3 className="mb-3 text-sm font-semibold capitalize text-white">{key.replace(/([A-Z])/g, " $1")}</h3>
-                        <BulletList items={(items as string[]).length ? (items as string[]) : ["None detected."]} />
+                    {Object.entries(analysis.report.bsDetector)
+                      .filter(([, items]) => (items as string[]).length > 0)
+                      .map(([key, items]) => (
+                        <div key={key} className="rounded-md border border-white/10 bg-white/[0.03] p-4">
+                          <h3 className="mb-3 text-sm font-semibold capitalize text-white">{key.replace(/([A-Z])/g, " $1")}</h3>
+                          <BulletList items={items as string[]} />
+                        </div>
+                      ))}
+                    {Object.values(analysis.report.bsDetector).every((items) => (items as string[]).length === 0) && (
+                      <div className="rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-steel md:col-span-2">
+                        No significant red flags detected in this piece.
                       </div>
-                    ))}
+                    )}
                   </div>
                 </Section>
 
