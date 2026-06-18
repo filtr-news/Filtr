@@ -119,7 +119,6 @@ function BiasMeter({ score }: { score: number }) {
 function FactGrid({ report }: { report: FiltrReport }) {
   const factGroups = [
     ["Verifiable Claims", report.keyFacts.verifiableClaims],
-    ["Important Numbers", report.keyFacts.importantNumbers],
     ["Named Entities", report.keyFacts.namedEntities]
   ];
 
