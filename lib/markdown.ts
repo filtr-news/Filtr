@@ -21,9 +21,6 @@ ${list(report.summary)}
 ### Verifiable Claims
 ${list(report.keyFacts.verifiableClaims)}
 
-### Important Numbers
-${list(report.keyFacts.importantNumbers)}
-
 ### Named Entities
 ${list(report.keyFacts.namedEntities)}
 
