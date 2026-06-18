@@ -472,7 +472,7 @@ export default function Home() {
                             <Loader2 className="h-5 w-5 animate-spin" />
                           ) : (
                             <>
-                              Analyze Article
+                              Analyze PDF
                               <ArrowRight className="h-4 w-4" />
                             </>
                           )}
