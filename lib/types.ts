@@ -8,7 +8,7 @@ export type SourceInfo = {
   originalReadingMinutes: number;
   briefReadingMinutes: number;
   minutesSaved: number;
-  extractionMethod: "readability" | "cheerio";
+  extractionMethod: "readability" | "cheerio" | "pdf";
 };
 
 export type NarrativeFlag = {
@@ -29,7 +29,6 @@ export type FiltrReport = {
     verifiableClaims: string[];
     importantNumbers: string[];
     namedEntities: string[];
-    datesAndTimelines: string[];
   };
   whatActuallyMatters: {
     whyItMatters: string;
