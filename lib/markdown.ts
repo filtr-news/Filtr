@@ -6,11 +6,10 @@ function list(items: string[]) {
 
 export function toMarkdown({ source, report }: AnalysisResponse) {
   return `# Filtr Brief: ${source.title}
-
 Source: ${source.url}
 Extraction: ${source.extractionMethod}
 Reading time saved: ${source.minutesSaved} min
-Bias score: ${report.narrativeDetection.biasScore}/10
+Narrative Load: ${report.narrativeDetection.biasScore}/10
 
 ## TL;DR
 ${report.tldr}
@@ -28,9 +27,6 @@ ${list(report.keyFacts.importantNumbers)}
 ### Named Entities
 ${list(report.keyFacts.namedEntities)}
 
-### Dates and Timelines
-${list(report.keyFacts.datesAndTimelines)}
-
 ## What Actually Matters
 ${report.whatActuallyMatters.whyItMatters}
 
@@ -47,13 +43,7 @@ ${list(report.narrativeDetection.flags.map((flag) => `${flag.label} (${flag.seve
 ${list(report.narrativeDetection.highlightedSentences.map((item) => `${item.sentence} — ${item.reason}`))}
 
 ## BS Detector
-- Missing context: ${report.bsDetector.missingContext.join("; ") || "None detected."}
-- Cherry-picked data: ${report.bsDetector.cherryPickedData.join("; ") || "None detected."}
-- Unsupported claims: ${report.bsDetector.unsupportedClaims.join("; ") || "None detected."}
-- Anonymous sourcing: ${report.bsDetector.anonymousSourcing.join("; ") || "None detected."}
-- Conflicts of interest: ${report.bsDetector.conflictsOfInterest.join("; ") || "None detected."}
-- Sponsored indicators: ${report.bsDetector.sponsoredIndicators.join("; ") || "None detected."}
-
+${report.bsDetector.missingContext.length ? `- Missing context: ${report.bsDetector.missingContext.join("; ")}\n` : ""}${report.bsDetector.cherryPickedData.length ? `- Cherry-picked data: ${report.bsDetector.cherryPickedData.join("; ")}\n` : ""}${report.bsDetector.unsupportedClaims.length ? `- Unsupported claims: ${report.bsDetector.unsupportedClaims.join("; ")}\n` : ""}${report.bsDetector.anonymousSourcing.length ? `- Anonymous sourcing: ${report.bsDetector.anonymousSourcing.join("; ")}\n` : ""}${report.bsDetector.conflictsOfInterest.length ? `- Conflicts of interest: ${report.bsDetector.conflictsOfInterest.join("; ")}\n` : ""}${report.bsDetector.sponsoredIndicators.length ? `- Sponsored indicators: ${report.bsDetector.sponsoredIndicators.join("; ")}\n` : ""}${!report.bsDetector.missingContext.length && !report.bsDetector.cherryPickedData.length && !report.bsDetector.unsupportedClaims.length && !report.bsDetector.anonymousSourcing.length && !report.bsDetector.conflictsOfInterest.length && !report.bsDetector.sponsoredIndicators.length ? "- No significant red flags detected.\n" : ""}
 ## Alternate Lens
 ${list(report.alternateLens)}
 
