@@ -30,15 +30,27 @@ function sentences(text: string) {
     .filter((sentence) => sentence.length > 30);
 }
 
-function extractNumbers(text: string) {
-  return Array.from(
-    new Set(text.match(/\b(?:\$|€|£)?\d[\d,.]*(?:%| million| billion| trillion| basis points| bps)?\b/gi) || [])
-  ).slice(0, 8);
-}
+// Common words that get capitalized at sentence starts or in headlines —
+// these are not entities and pollute naive regex-based extraction.
+const ENTITY_STOPWORDS = new Set([
+  "The", "This", "That", "These", "Those", "It", "He", "She", "They", "We", "You", "I",
+  "A", "An", "In", "On", "At", "By", "For", "With", "From", "After", "Before", "During",
+  "However", "Meanwhile", "Additionally", "Furthermore", "Moreover", "Despite", "Although",
+  "According", "Officials", "Authorities", "Reports", "Sources", "Monday", "Tuesday",
+  "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "January", "February", "March",
+  "April", "May", "June", "July", "August", "September", "October", "November", "December"
+]);
 
 function extractEntities(text: string) {
   const matches = text.match(/\b[A-Z][a-z]+(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,}|&)){1,4}/g) || [];
-  return Array.from(new Set(matches.filter((item) => !item.startsWith("The ")))).slice(0, 12);
+  const filtered = matches.filter((item) => {
+    const firstWord = item.split(" ")[0];
+    if (ENTITY_STOPWORDS.has(firstWord)) return false;
+    // Require at least one capitalized word of length 3+ to avoid catching short noise like "Mr A"
+    if (item.replace(/\s+/g, "").length < 5) return false;
+    return true;
+  });
+  return Array.from(new Set(filtered)).slice(0, 6);
 }
 
 function narrativeHighlights(text: string): Highlight[] {
@@ -65,7 +77,6 @@ function capBsDetector(bsDetector: FiltrReport["bsDetector"], maxItems = 3): Fil
 function localAnalyze(content: string, source: SourceInfo): FiltrReport {
   const allSentences = sentences(content);
   const highlights = narrativeHighlights(content);
-  const numbers = extractNumbers(content);
   const entities = extractEntities(content);
   const biasScore = Math.min(10, Math.max(1, highlights.length * 2 + (content.match(/anonymous|sources said|insider|critics say/gi)?.length || 0)));
 
@@ -101,7 +112,6 @@ function localAnalyze(content: string, source: SourceInfo): FiltrReport {
     summary: allSentences.slice(0, 5),
     keyFacts: {
       verifiableClaims: allSentences.slice(0, 5),
-      importantNumbers: numbers.length ? numbers : ["No prominent numbers detected."],
       namedEntities: entities.length ? entities : [source.siteName || new URL(source.url).hostname]
     },
     whatActuallyMatters: {
@@ -125,17 +135,17 @@ function localAnalyze(content: string, source: SourceInfo): FiltrReport {
     },
     bsDetector: capBsDetector({
       missingContext: ["Check whether the piece compares this event against historical baselines or peer examples."],
-      cherryPickedData: numbers.length ? ["Numbers appear in the piece; verify denominators, time periods, and source methodology."] : [],
+      cherryPickedData: [],
       unsupportedClaims: allSentences.filter((sentence) => /may|might|could|critics|experts|some say/i.test(sentence)).slice(0, 4),
       anonymousSourcing: allSentences.filter((sentence) => /anonymous|sources said|insider|person familiar/i.test(sentence)).slice(0, 4),
       conflictsOfInterest: ["Look for ownership, sponsor, affiliate, or author incentives that could shape framing."],
       sponsoredIndicators: allSentences.filter((sentence) => /sponsored|partner|affiliate|presented by|brand studio/i.test(sentence)).slice(0, 4)
     }),
     alternateLens: [
-      "Market perspective: ask whether this changes cash flows, competitive position, regulation, or risk pricing.",
-      "Consumer perspective: ask whether everyday choices, costs, or protections actually change.",
-      "Industry perspective: ask whether incumbents, suppliers, or regulators gain leverage.",
-      "Skeptical perspective: ask what evidence would disprove the article's implied conclusion."
+      "Market perspective: if this claim is true, which specific companies or sectors gain or lose, and has the market already priced that in?",
+      "Consumer perspective: does this actually change a real decision someone makes this week, or is it background noise dressed as news?",
+      "Power perspective: who benefits from this story being told this way right now, and who would tell it differently?",
+      "Skeptical perspective: what single piece of missing evidence would most change the conclusion, and why wasn't it included?"
     ],
     finalVerdict: `This piece centers on: "${topClaim}" ${verdictBias}${verdictSourcing}`
   };
@@ -161,8 +171,7 @@ Return JSON with this exact shape:
   "summary": ["3-5 bullets"],
   "keyFacts": {
     "verifiableClaims": ["claims that can be checked"],
-    "importantNumbers": ["numbers with context"],
-    "namedEntities": ["people, orgs, places, products"]
+    "namedEntities": ["AT MOST 5-6 items. Only specific, genuinely important people, organizations, places, or products that are central to the story — not every capitalized word or passing reference. Skip generic references like 'the company' or publication/outlet names unless the outlet itself is the subject."]
   },
   "whatActuallyMatters": {
     "whyItMatters": "string",
@@ -182,11 +191,13 @@ Return JSON with this exact shape:
     "conflictsOfInterest": ["AT MOST 2-3 items, same rule"],
     "sponsoredIndicators": ["AT MOST 2-3 items, same rule"]
   },
-  "alternateLens": ["2-4 alternative interpretations labeled by perspective"],
+  "alternateLens": ["EXACTLY 4 items, each a sharp, specific, probing question or angle that makes the reader think harder about THIS article — not a generic restatement of viewpoints. Each should be labeled by perspective (e.g. 'Market perspective:', 'Power perspective:', 'Skeptical perspective:') followed by a pointed question referencing the article's actual claim, asking what evidence would change the conclusion, who benefits from the framing, or what a careful reader should still be unsure about. Avoid vague phrasing like 'ask whether' — be concrete and specific to the content."],
   "finalVerdict": "One paragraph that names the SPECIFIC central claim of THIS article (quote or closely paraphrase it), states how much confidence a careful reader should place in it based on the sourcing and framing actually present in the text, and names the one thing that would most change that confidence (e.g. a missing data point, an unnamed source, or absent context). Do not write a generic statement that could apply to any article."
 }
 
-IMPORTANT: Every bsDetector array must contain at most 3 items. If you have nothing genuine to flag for a category, return an empty array for it rather than inventing filler.
+IMPORTANT: Every bsDetector array must contain at most 3 items. If you have nothing genuine to flag for a category, return an empty array for it rather than inventing filler. namedEntities must contain at most 6 items, prioritizing the most central names to the story.
+
+If the extracted content below is dominated by site navigation, audio-player prompts, cookie banners, or other non-article boilerplate rather than the actual article body, note this explicitly in "tldr" (e.g. "This page's extracted text is mostly site navigation, not article content — analysis may be unreliable.") rather than treating boilerplate text as the article's content.
 
 Content:
 ${content}`
@@ -215,8 +226,9 @@ export async function analyzeContent(content: string, source: SourceInfo): Promi
   try {
     const parsed = JSON.parse(raw) as FiltrReport;
     parsed.narrativeDetection.biasScore = Math.max(0, Math.min(10, Number(parsed.narrativeDetection.biasScore) || 0));
-    // Defensive cap in code too, in case the model ignores the instruction.
+    // Defensive caps in code too, in case the model ignores the prompt instructions.
     parsed.bsDetector = capBsDetector(parsed.bsDetector, 3);
+    parsed.keyFacts.namedEntities = (parsed.keyFacts.namedEntities || []).slice(0, 6);
     return parsed;
   } catch {
     return localAnalyze(content, source);
