@@ -65,6 +65,31 @@ function normalizeText(text: string) {
     .trim();
 }
 
+// Strips common non-article boilerplate lines that sometimes survive inside
+// the <article> tag (audio-player prompts, "sign up for our newsletter" inserts,
+// social-share callouts) so they don't get mistaken for the article's actual
+// opening sentence or summarized as if they were content.
+const BOILERPLATE_LINE_PATTERNS = [
+  /^NEW\s*You can now listen to.*articles?!?$/i,
+  /^Listen to this article$/i,
+  /^\d+(\.\d+)?x$/i,
+  /^Subscribe to.*newsletter/i,
+  /^Sign up for.*newsletter/i,
+  /^Share this article/i,
+  /^This audio is auto-generated/i,
+  /^Click to expand/i
+];
+
+function stripBoilerplate(text: string): string {
+  const lines = text.split("\n");
+  const cleaned = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+    return !BOILERPLATE_LINE_PATTERNS.some((pattern) => pattern.test(trimmed));
+  });
+  return cleaned.join("\n");
+}
+
 function estimateMinutes(wordCount: number) {
   return Math.max(1, Math.ceil(wordCount / 225));
 }
@@ -89,7 +114,35 @@ async function assertPublicUrl(url: URL) {
   }
 }
 
+// Sites known to actively block automated/non-browser requests (via Cloudflare,
+// Akamai, or similar bot-detection). For these, give an accurate message
+// immediately instead of letting the user wait through a timeout that will
+// fail anyway. This list will grow as more sites are identified — it's a
+// known-issue list, not a guarantee that every other site will work.
+const KNOWN_BOT_BLOCKING_HOSTS = [
+  "washingtonpost.com",
+  "nejm.org",
+  "wsj.com",
+  "bloomberg.com",
+  "ft.com"
+];
+
+function isKnownBotBlocker(hostname: string): boolean {
+  const normalized = hostname.replace(/^www\./, "");
+  return KNOWN_BOT_BLOCKING_HOSTS.some(
+    (blocked) => normalized === blocked || normalized.endsWith(`.${blocked}`)
+  );
+}
+
 async function fetchWithLimits(url: string) {
+  const hostname = new URL(url).hostname;
+
+  if (isKnownBotBlocker(hostname)) {
+    throw new Error(
+      "This site actively blocks automated requests, so Filtr can't fetch it directly. Try copying the article text into a PDF, or look for the same story on a source that allows automated access."
+    );
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -106,7 +159,9 @@ async function fetchWithLimits(url: string) {
     });
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("That page took too long to respond. Try again or try a different URL.");
+      throw new Error(
+        "That page didn't respond in time. This often means the site is blocking automated requests rather than just being slow — try a different source for this story."
+      );
     }
     throw new Error("Could not reach that URL. Check that it's publicly accessible and try again.");
   } finally {
@@ -179,7 +234,7 @@ function fallbackExtract(html: string, url: string) {
     siteName,
     byline: $("meta[name='author']").attr("content"),
     excerpt: $("meta[name='description']").attr("content") || undefined,
-    textContent: body,
+    textContent: stripBoilerplate(body),
     method: "cheerio" as const
   };
 }
@@ -253,7 +308,7 @@ export async function scrapeUrl(url: string): Promise<{ source: SourceInfo; cont
           siteName: article.siteName || parsed.hostname.replace(/^www\./, ""),
           byline: article.byline || undefined,
           excerpt: article.excerpt || undefined,
-          textContent: normalizeText(article.textContent),
+          textContent: stripBoilerplate(normalizeText(article.textContent)),
           method: "readability" as const
         }
       : fallbackExtract(html, url);
