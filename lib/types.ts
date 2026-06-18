@@ -27,7 +27,6 @@ export type FiltrReport = {
   summary: string[];
   keyFacts: {
     verifiableClaims: string[];
-    importantNumbers: string[];
     namedEntities: string[];
   };
   whatActuallyMatters: {
