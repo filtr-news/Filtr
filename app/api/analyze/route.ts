@@ -11,7 +11,7 @@ const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 MB
 
 const UrlRequestSchema = z.object({
   url: z.string().url(),
-  mode: z.enum(["article", "pdf"]).optional().default("article")
+  mode: z.enum(["url", "pdf"]).optional().default("url")
 });
 
 export async function POST(request: Request) {
